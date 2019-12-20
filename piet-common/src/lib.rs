@@ -31,9 +31,18 @@ pub use piet::kurbo;
 
 #[cfg(any(
     feature = "cairo",
-    not(any(target_arch = "wasm32", target_os = "windows", feature = "direct2d"))
+    not(any(
+        target_arch = "wasm32",
+        target_os = "android",
+        target_os = "windows",
+        feature = "direct2d"
+    ))
 ))]
 #[path = "cairo_back.rs"]
+mod backend;
+
+#[cfg(all(not(feature = "cairo"), target_os = "android"))]
+#[path = "android_back.rs"]
 mod backend;
 
 #[cfg(any(feature = "d2d", all(target_os = "windows", not(feature = "cairo"))))]
