@@ -2,6 +2,7 @@
 
 members = [
     "piet",
+    "piet-android",
     "piet-cairo",
     "piet-common",
     "piet-direct2d",
@@ -12,6 +13,7 @@ members = [
 
 default-members = [
     "piet",
+    "piet-android",
     "piet-cairo",
     "piet-common",
     "piet-test",
