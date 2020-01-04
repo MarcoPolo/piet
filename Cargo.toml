@@ -20,3 +20,7 @@ default-members = [
     "piet-web",
     "piet-web/examples/basic"
 ]
+
+[patch.crates-io]
+# Local fork that lets me turn Local and Argument int Global
+jni-glue = {path = "../jni-bindgen/jni-glue"}
