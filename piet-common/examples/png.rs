@@ -3,6 +3,11 @@ use piet::kurbo::Line;
 use piet::{Color, ImageFormat, RenderContext};
 use piet_common::Device;
 
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_io_marcopolo_MainActivity_initRust() {}
+
+#[cfg(not(target_os = "android"))]
 fn main() {
     let device = Device::new().unwrap();
     let width = 640;

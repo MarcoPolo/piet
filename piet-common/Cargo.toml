@@ -12,9 +12,11 @@ keywords = ["graphics", "2d"]
 d2d = ["piet-direct2d"]
 cairo = ["piet-cairo", "cairo-rs"]
 web = ["piet-web"]
+android = ["piet-android"]
 
 [dependencies]
 piet = { version = "0.0.7", path = "../piet" }
+piet-android = { version = "0.1.0", path = "../piet-android", optional = true }
 piet-cairo = { version = "0.0.7", path = "../piet-cairo", optional = true }
 piet-direct2d = { version = "0.0.7", path = "../piet-direct2d", optional = true }
 piet-web = { version = "0.0.7", path = "../piet-web", optional = true }
@@ -33,9 +35,20 @@ direct3d11 = "0.1.7"
 
 [target.'cfg(target_os="android")'.dependencies]
 piet-android = { version = "0.1.0", path = "../piet-android" }
+jni-glue = "0.0.9"
 
 [target.'cfg(target_arch="wasm32")'.dependencies]
 piet-web = { version = "0.0.7", path = "../piet-web" }
 
 [dev-dependencies]
 image = "0.20.1"
+
+# [[target.'cfg(target_os="android")'.example]]
+[[example]]
+name = "android-png"
+path = "examples/png.rs"
+crate-type = ["cdylib"]
+
+[[example]]
+name = "png"
+path = "examples/png.rs"
