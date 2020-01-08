@@ -99,8 +99,6 @@ impl fmt::Display for AndroidError {
     }
 }
 
-pub struct AndroidBitmapReader<'a>(JNIRef<'a, Bitmap>, usize);
-
 impl AndroidBitmap {
     pub fn create(
         env: &Env,
@@ -172,39 +170,6 @@ impl AndroidBitmap {
         }
 
         v
-    }
-}
-
-impl Read for AndroidBitmapReader<'_> {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, std::io::Error> {
-        let bitmap = &self.0;
-        let read_so_far = &mut self.1;
-        let width = bitmap.getWidth().unwrap();
-        let height = bitmap.getHeight().unwrap();
-        let pixels_read = (*read_so_far / 4 as usize) as i32;
-        let x_so_far = pixels_read % width;
-        let y_so_far = pixels_read / width;
-        let mut bytes_written = 0;
-        let buf_len = buf.len();
-
-        for y in y_so_far..height {
-            for x in 0..width {
-                if y == y_so_far && x < x_so_far {
-                    continue;
-                }
-                let pixel = bitmap.getPixel(x, y).unwrap();
-                // In order of ABGR
-                for color in 0..4 {
-                    if bytes_written == buf_len {
-                        return Ok(bytes_written);
-                    }
-                    buf[bytes_written + color] = (pixel >> (24 - color * 8)) as u8 & 0xff;
-                    bytes_written += 1;
-                    *read_so_far += 1;
-                }
-            }
-        }
-        return Ok(bytes_written);
     }
 }
 
@@ -353,16 +318,24 @@ impl From<FixedGradient> for AndroidBrush {
     }
 }
 
-pub struct CanvasContext<'draw>(Global<Canvas>, PhantomData<&'draw ()>);
+// pub struct CanvasContext<'draw>(&'draw Canvas);
+pub enum CanvasContext<'draw> {
+    WithRef(&'draw Canvas),
+    Owned(Global<Canvas>, PhantomData<&'draw ()>),
+}
 
 impl<'draw> CanvasContext<'draw> {
-    pub fn new(surface: &AndroidBitmap) -> CanvasContext<'draw> {
+    pub fn new(surface: &AndroidBitmap) -> CanvasContext<'static> {
         with_current_env(|env: &Env| {
             let bitmap_ref: &Bitmap = &surface.0.with(env);
-            let canvas: Local<'_, Canvas> =
+            let canvas: Local<Canvas> =
                 Canvas::new_Bitmap(env, Some(bitmap_ref)).expect("Failed to create Canvas");
-            CanvasContext(canvas.into(), Default::default())
+            CanvasContext::Owned(canvas.into(), Default::default())
         })
+    }
+
+    pub fn new_from_canvas(canvas: &'draw Canvas) -> CanvasContext<'draw> {
+        CanvasContext::WithRef(canvas)
     }
 
     pub fn scale(&self, sx: f32, sy: f32) {
@@ -375,9 +348,9 @@ impl<'draw> CanvasContext<'draw> {
     where
         F: FnOnce(&Canvas) -> R,
     {
-        with_current_env(|env| {
-            let canvas: &Canvas = &self.0.with(env);
-            f(canvas)
+        with_current_env(|env| match self {
+            CanvasContext::WithRef(canvas) => f(canvas),
+            CanvasContext::Owned(global_canvas, _) => f(&global_canvas.with(env)),
         })
     }
 
@@ -385,9 +358,9 @@ impl<'draw> CanvasContext<'draw> {
     where
         F: FnOnce(&Env, &Canvas) -> R,
     {
-        with_current_env(|env| {
-            let canvas: &Canvas = &self.0.with(env);
-            f(env, canvas)
+        with_current_env(|env| match self {
+            CanvasContext::WithRef(canvas) => f(env, canvas),
+            CanvasContext::Owned(global_canvas, _) => f(env, &global_canvas.with(env)),
         })
     }
 }
@@ -596,7 +569,7 @@ impl TextLayout for AndroidTextLayout {
     }
 }
 
-impl<'draw> IntoBrush<AndroidRenderContext<'_, 'draw>> for AndroidBrush {
+impl<'draw> IntoBrush<AndroidRenderContext<'_, '_>> for AndroidBrush {
     fn make_brush<'b>(
         &'b self,
         _piet: &mut AndroidRenderContext,
@@ -658,7 +631,7 @@ impl From<Color> for AndroidColor {
     }
 }
 
-impl<'draw> RenderContext for AndroidRenderContext<'_, 'draw> {
+impl<'a, 'draw> RenderContext for AndroidRenderContext<'a, 'draw> {
     type Brush = AndroidBrush;
     type Text = AndroidText;
     type TextLayout = AndroidTextLayout;

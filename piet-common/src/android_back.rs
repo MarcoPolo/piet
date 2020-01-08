@@ -52,10 +52,10 @@ pub struct Device<'env> {
 }
 
 /// A struct provides a `RenderContext` and then can have its bitmap extracted.
-pub struct BitmapTarget<'a, 'draw> {
+pub struct BitmapTarget<'env, 'draw> {
     surface: AndroidBitmap,
     cr: CanvasContext<'draw>,
-    env: &'a Env,
+    env: &'env Env,
 }
 
 impl<'env> Device<'env> {
@@ -90,13 +90,12 @@ impl<'env> Device<'env> {
     }
 }
 
-impl<'a, 'draw> BitmapTarget<'a, 'draw> {
+impl<'draw> BitmapTarget<'_, 'draw> {
     /// Get a piet `RenderContext` for the bitmap.
     ///
     /// Note: caller is responsible for calling `finish` on the render
     /// context at the end of rendering.
-    pub fn render_context<'b>(&'b mut self) -> AndroidRenderContext<'b, 'draw> {
-        // panic!("TODO");
+    pub fn render_context(&mut self) -> AndroidRenderContext<'_, 'draw> {
         AndroidRenderContext::new(&mut self.cr)
     }
 
@@ -105,12 +104,12 @@ impl<'a, 'draw> BitmapTarget<'a, 'draw> {
     }
 
     /// Get raw RGBA pixels from the bitmap.
-    pub fn into_raw_pixels(self, fmt: ImageFormat) -> Result<Vec<u8>, piet::Error> {
+    pub fn to_raw_pixels(&self, fmt: ImageFormat) -> Result<Vec<u8>, piet::Error> {
         // TODO: convert other formats.
         if fmt != ImageFormat::RgbaSeparate {
             return Err(piet::new_error(ErrorKind::NotSupported));
         }
-        let android_bitmap = self.surface;
+        let android_bitmap = &self.surface;
         Ok(android_bitmap.get_bytes(self.env))
     }
 }
