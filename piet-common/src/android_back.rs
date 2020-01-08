@@ -1,10 +1,7 @@
 //! Support for piet Android back-end.
 
-// use std::marker::PhantomData;
-
-// use cairo::{Context, Format, ImageSurface};
-
-use jni_glue::Env;
+use jni_android_sys::android::graphics::Bitmap;
+use jni_glue::{Env, Global};
 use piet::{ErrorKind, ImageFormat};
 
 #[doc(hidden)]
@@ -64,6 +61,7 @@ pub struct BitmapTarget<'a, 'draw> {
 impl<'env> Device<'env> {
     /// Create a new device.
     pub fn new(env: &'env Env) -> Result<Device<'env>, piet::Error> {
+        piet_android::set_current_env(env);
         Ok(Device { env })
     }
 
@@ -98,7 +96,12 @@ impl<'a, 'draw> BitmapTarget<'a, 'draw> {
     /// Note: caller is responsible for calling `finish` on the render
     /// context at the end of rendering.
     pub fn render_context<'b>(&'b mut self) -> AndroidRenderContext<'b, 'draw> {
+        // panic!("TODO");
         AndroidRenderContext::new(&mut self.cr)
+    }
+
+    pub fn into_bitmap(self) -> Global<Bitmap> {
+        self.surface.0
     }
 
     /// Get raw RGBA pixels from the bitmap.
@@ -107,13 +110,7 @@ impl<'a, 'draw> BitmapTarget<'a, 'draw> {
         if fmt != ImageFormat::RgbaSeparate {
             return Err(piet::new_error(ErrorKind::NotSupported));
         }
-        std::mem::drop(self.cr);
         let android_bitmap = self.surface;
-        let byte_count = android_bitmap.byte_count(self.env);
-        let mut reader = android_bitmap.to_reader(self.env);
-        use std::io::Read;
-        let mut raw_data = vec![0u8; byte_count];
-        reader.read(&mut raw_data[..]);
-        Ok(raw_data)
+        Ok(android_bitmap.get_bytes(self.env))
     }
 }
