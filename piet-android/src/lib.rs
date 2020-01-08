@@ -1,15 +1,18 @@
 #![cfg(target_os = "android")]
 mod grapheme;
 
+use unwrap::*;
+
 use jni;
+
 use jni_android_sys::android::graphics::{
-    self, Bitmap, Bitmap_Config, Canvas, Color as AColor, LinearGradient, Paint, Path as APath,
-    Shader, Shader_TileMode, Typeface,
+    self, Bitmap, Bitmap_Config, Canvas, Color as AColor, LinearGradient, Paint, Paint_Style,
+    Path as APath, Shader, Shader_TileMode, Typeface,
 };
 use jni_android_sys::java::lang::String as JavaString;
 use jni_android_sys::java::nio::{Buffer, ByteBuffer};
 use jni_glue::{self, Argument, Env, Global, Local, PrimitiveArray, Ref as JNIRef, VM};
-use jni_sys::jobject;
+use jni_sys::JNIEnv;
 use std::borrow::Cow;
 use std::error::Error as StdError;
 use std::fmt;
@@ -33,19 +36,36 @@ use piet::{
 };
 
 thread_local! {
-    static ENV: RefCell<Option<Env>> = RefCell::new(None);
+    static ENV: RefCell<Option<*mut JNIEnv>> = RefCell::new(None);
+}
+
+pub fn set_current_env(env: &Env) {
+    let jnienv = env.as_jni_env();
+    ENV.with(|tls_env| {
+        let mut tls_env = tls_env.borrow_mut();
+        *tls_env = Some(jnienv);
+    });
 }
 
 fn with_current_env<F, R>(f: F) -> R
 where
     F: FnOnce(&Env) -> R,
 {
-    ENV.with(|env| f(env.borrow().as_ref().unwrap()))
+    ENV.with(|jnienv| {
+        let env: &Env = unsafe {
+            Env::from_ptr(
+                jnienv
+                    .borrow()
+                    .expect("Env isn't set in our global environment"),
+            )
+        };
+        f(env)
+    })
 }
 
 pub struct AndroidDevice {}
 
-pub struct AndroidBitmap(Global<Bitmap>);
+pub struct AndroidBitmap(pub Global<Bitmap>);
 
 impl AndroidBitmap {
     fn with_bitmap<'a: 'env, 'env: 'subenv, 'subenv, F, R>(&'a self, env: &'env Env, f: F) -> R
@@ -90,7 +110,7 @@ impl AndroidBitmap {
     ) -> Result<AndroidBitmap, AndroidError> {
         let config = format_to_bitmap_config(env, format);
         Bitmap::createBitmap_int_int_Config(env, width, height, &config as &Bitmap_Config)
-            .map(|bm| AndroidBitmap(bm.unwrap().into()))
+            .map(|bm| AndroidBitmap(unwrap!(bm).into()))
             .map_err(|e| AndroidError(format!("Failed to create Bitmap: {:?}", e)))
     }
 
@@ -104,15 +124,15 @@ impl AndroidBitmap {
         // Convert &[u8] to &[i8] for jni
         let buf = unsafe { &*(buf as *const [u8] as *const [i8]) };
         let java_bytes: Local<jni_glue::ByteArray> = jni_glue::PrimitiveArray::from(env, &buf);
-        let byte_buffer =
-            ByteBuffer::wrap_byte_array(env, Some(&java_bytes as &jni_glue::ByteArray))
-                .unwrap()
-                .unwrap();
+        let byte_buffer = unwrap!(unwrap!(ByteBuffer::wrap_byte_array(
+            env,
+            Some(&java_bytes as &jni_glue::ByteArray)
+        )));
 
         let config = format_to_bitmap_config(env, format);
         Bitmap::createBitmap_int_int_Config(env, width, height, &config as &Bitmap_Config)
             .map(|bm| {
-                let bm = bm.unwrap();
+                let bm = unwrap!(bm);
                 bm.copyPixelsFromBuffer(Some(&byte_buffer as &Buffer));
                 AndroidBitmap(bm.into())
             })
@@ -129,9 +149,29 @@ impl AndroidBitmap {
     /// Returns the pixel data as is from the bitmap buffer
     /// Non premul
     /// This could be better with direct write to a buffer
-    pub fn to_reader<'a>(&'a self, env: &'a Env) -> AndroidBitmapReader<'a> {
+    pub fn get_bytes<'a>(&'a self, env: &'a Env) -> Vec<u8> {
         let bitmap = self.0.with(env);
-        AndroidBitmapReader(bitmap, 0)
+
+        let byte_count = bitmap.getByteCount().unwrap();
+        let java_byte_array: Local<jni_glue::ByteArray> =
+            jni_glue::PrimitiveArray::new(env, byte_count as usize);
+        let bb = ByteBuffer::wrap_byte_array(env, Some(&java_byte_array as &jni_glue::ByteArray))
+            .unwrap()
+            .unwrap();
+        bitmap
+            .copyPixelsToBuffer(Some(&bb as &Buffer))
+            .expect("Copy pixels to buffer failed");
+
+        let mut v: Vec<u8> = vec![0u8; byte_count as usize];
+        {
+            let u8_buf = &mut v[..];
+            // Java bytes are i8, so we pretend we are looking at an i8 slice.
+            // Basically &[u8] into &[i8]
+            let i8_buf = unsafe { &mut *(u8_buf as *mut [u8] as *mut [i8]) };
+            java_byte_array.get_region(0, i8_buf);
+        }
+
+        v
     }
 }
 
@@ -252,7 +292,7 @@ impl AndroidBrush {
 impl Default for AndroidBrush {
     fn default() -> Self {
         let paint = with_current_env(|env| {
-            let paint: Global<Paint> = Paint::new(env).unwrap().into();
+            let paint: Global<Paint> = Paint::new_int(env, Paint::ANTI_ALIAS_FLAG).unwrap().into();
             paint
         });
         AndroidBrush(Rc::new(paint))
@@ -393,7 +433,7 @@ impl FontBuilder for AndroidFontBuilder {
             )
             .unwrap()
             .unwrap();
-            let paint = Paint::new(&env).unwrap();
+            let paint = Paint::new_int(&env, Paint::ANTI_ALIAS_FLAG).unwrap();
             paint.setTypeface(&typeface as &Typeface).unwrap();
             paint.setTextSize(self.size as f32).unwrap();
             Ok(AndroidFont {
@@ -571,7 +611,7 @@ struct AndroidPath<'env>(Local<'env, APath>);
 impl<'env> AndroidPath<'env> {
     fn from_shape(env: &'env Env, shape: impl Shape) -> AndroidPath<'env> {
         let path = APath::new(env).unwrap();
-        for el in shape.to_bez_path(0.1) {
+        for el in shape.to_bez_path(1e-3) {
             let res = match el {
                 PathEl::MoveTo(p) => path.moveTo(p.x as f32, p.y as f32),
                 PathEl::LineTo(p) => path.lineTo(p.x as f32, p.y as f32),
@@ -599,6 +639,7 @@ impl<'env> AndroidPath<'env> {
 // }
 
 /// Android uses argb, so let's have a helper function to convert from rgba
+#[derive(Debug)]
 struct AndroidColor(u32);
 
 impl Into<i32> for AndroidColor {
@@ -612,7 +653,7 @@ impl From<Color> for AndroidColor {
         let color = color.as_rgba_u32();
         // Just the bottom byte
         let alpha = color as u8;
-        let color = (color >> 8) & ((alpha as u32) << 24);
+        let color = (color >> 8) | ((alpha as u32) << 24);
         AndroidColor(color)
     }
 }
@@ -652,6 +693,9 @@ impl<'draw> RenderContext for AndroidRenderContext<'_, 'draw> {
         self.canvas.with_env_canvas(|env, canvas| {
             let android_path = AndroidPath::from_shape(env, shape);
             brush.with_paint(|paint| {
+                paint
+                    .setStyle(Some(&*Paint_Style::FILL(env).unwrap()))
+                    .unwrap();
                 canvas
                     .drawPath(Some(&android_path.0 as &APath), Some(paint))
                     .unwrap();
@@ -664,6 +708,9 @@ impl<'draw> RenderContext for AndroidRenderContext<'_, 'draw> {
         self.canvas.with_env_canvas(|env, canvas| {
             let android_path = AndroidPath::from_shape(env, shape);
             brush.with_paint(|paint| {
+                paint
+                    .setStyle(Some(&*Paint_Style::FILL(env).unwrap()))
+                    .unwrap();
                 android_path
                     .0
                     .setFillType(Some(&graphics::Path_FillType::EVEN_ODD(env).unwrap()
@@ -690,12 +737,10 @@ impl<'draw> RenderContext for AndroidRenderContext<'_, 'draw> {
         self.canvas.with_env_canvas(|env, canvas| {
             let android_path = AndroidPath::from_shape(env, shape);
             brush.with_paint(|paint| {
-                paint.setStrokeWidth(width as f32).unwrap();
-                android_path
-                    .0
-                    .setFillType(Some(&graphics::Path_FillType::EVEN_ODD(env).unwrap()
-                        as &graphics::Path_FillType))
+                paint
+                    .setStyle(Some(&*Paint_Style::STROKE(env).unwrap()))
                     .unwrap();
+                paint.setStrokeWidth(width as f32).unwrap();
                 canvas
                     .drawPath(Some(&android_path.0 as &APath), Some(paint))
                     .unwrap();
@@ -715,6 +760,9 @@ impl<'draw> RenderContext for AndroidRenderContext<'_, 'draw> {
             let android_path = AndroidPath::from_shape(env, shape);
             brush.with_paint(|paint| {
                 paint.setStrokeWidth(width as f32).unwrap();
+                paint
+                    .setStyle(Some(&*Paint_Style::STROKE(env).unwrap()))
+                    .unwrap();
 
                 if let Some(line_join) = style.line_join {
                     let paint_join: Local<graphics::Paint_Join> = match line_join {
@@ -853,7 +901,6 @@ impl<'draw> RenderContext for AndroidRenderContext<'_, 'draw> {
         buf: &[u8],
         format: ImageFormat,
     ) -> Result<Self::Image, Error> {
-        // Convert &[u8] to &[i8] for jni
         self.canvas.with_env_canvas(|env, _| {
             let android_bitmap =
                 AndroidBitmap::create_with_buf(env, format, width as i32, height as i32, buf)
@@ -879,7 +926,7 @@ impl<'draw> RenderContext for AndroidRenderContext<'_, 'draw> {
             )
             .unwrap();
             let bitmap = image.0.with(env);
-            let paint = Paint::new(env).unwrap();
+            let paint = Paint::new_int(env, Paint::ANTI_ALIAS_FLAG).unwrap();
             if interp == InterpolationMode::Bilinear {
                 paint.setFlags(Paint::FILTER_BITMAP_FLAG).unwrap();
             }
