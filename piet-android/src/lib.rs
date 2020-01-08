@@ -6,33 +6,29 @@ use unwrap::*;
 use jni;
 
 use jni_android_sys::android::graphics::{
-    self, Bitmap, Bitmap_Config, Canvas, Color as AColor, LinearGradient, Paint, Paint_Style,
-    Path as APath, Shader, Shader_TileMode, Typeface,
+    self, Bitmap, Bitmap_Config, Canvas, LinearGradient, Paint, Paint_Style, Path as APath, Shader,
+    Shader_TileMode, Typeface,
 };
 use jni_android_sys::java::lang::String as JavaString;
 use jni_android_sys::java::nio::{Buffer, ByteBuffer};
-use jni_glue::{self, Argument, Env, Global, Local, PrimitiveArray, Ref as JNIRef, VM};
+use jni_glue::{self, Env, Global, Local, PrimitiveArray};
 use jni_sys::JNIEnv;
 use std::borrow::Cow;
 use std::error::Error as StdError;
 use std::fmt;
-use std::io::Read;
 use std::marker::PhantomData;
-use std::{
-    cell::{Ref, RefCell},
-    rc::Rc,
-};
+use std::{cell::RefCell, rc::Rc};
 
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::grapheme::point_x_in_grapheme;
 
-use piet::kurbo::{Affine, PathEl, Point, QuadBez, Rect, Shape};
+use piet::kurbo::{Affine, PathEl, Point, Rect, Shape};
 
 use piet::{
-    self, new_error, Color, Error, ErrorKind, FixedGradient, Font, FontBuilder, HitTestMetrics,
-    HitTestPoint, HitTestTextPosition, ImageFormat, InterpolationMode, IntoBrush, LineCap,
-    LineJoin, RenderContext, RoundInto, StrokeStyle, Text, TextLayout, TextLayoutBuilder,
+    self, Color, Error, FixedGradient, Font, FontBuilder, HitTestMetrics, HitTestPoint,
+    HitTestTextPosition, ImageFormat, InterpolationMode, IntoBrush, LineCap, LineJoin,
+    RenderContext, StrokeStyle, Text, TextLayout, TextLayoutBuilder,
 };
 
 thread_local! {
@@ -67,21 +63,7 @@ pub struct AndroidDevice {}
 
 pub struct AndroidBitmap(pub Global<Bitmap>);
 
-impl AndroidBitmap {
-    fn with_bitmap<'a: 'env, 'env: 'subenv, 'subenv, F, R>(&'a self, env: &'env Env, f: F) -> R
-    where
-        F: FnOnce(&Bitmap) -> R,
-    {
-        let bitmap_ref: JNIRef<'env, Bitmap> = self.0.with(env);
-        let bitmap: &Bitmap = &bitmap_ref;
-        f(bitmap)
-    }
-}
-
-fn format_to_bitmap_config<'env>(
-    env: &'env Env,
-    format: ImageFormat,
-) -> Local<'env, Bitmap_Config> {
+fn format_to_bitmap_config(env: &Env, format: ImageFormat) -> Local<Bitmap_Config> {
     match format {
         ImageFormat::RgbaSeparate | ImageFormat::RgbaPremul => {
             Bitmap_Config::ARGB_8888(env).expect("Create bitmap config failed")
@@ -131,7 +113,8 @@ impl AndroidBitmap {
         Bitmap::createBitmap_int_int_Config(env, width, height, &config as &Bitmap_Config)
             .map(|bm| {
                 let bm = unwrap!(bm);
-                bm.copyPixelsFromBuffer(Some(&byte_buffer as &Buffer));
+                bm.copyPixelsFromBuffer(Some(&byte_buffer as &Buffer))
+                    .unwrap();
                 AndroidBitmap(bm.into())
             })
             .map_err(|e| AndroidError(format!("Failed to create Bitmap: {:?}", e)))
@@ -200,6 +183,8 @@ impl AndroidFont {
         })
     }
 
+    // This is useful for something, but I forget what.
+    #[allow(dead_code)]
     fn measure_text_bounded(&self, text: &str, start: i32, end: i32) -> f32 {
         with_current_env(|env| {
             let paint = self.paint.with(env);
@@ -307,12 +292,7 @@ impl From<FixedGradient> for AndroidBrush {
                     })
                 })
             }
-            FixedGradient::Radial(piet::FixedRadialGradient {
-                center,
-                origin_offset,
-                radius,
-                stops,
-            }) => unimplemented!("TODO add Radial offset"),
+            FixedGradient::Radial(_) => unimplemented!("TODO add Radial offset"),
         }
         brush
     }
@@ -451,7 +431,7 @@ impl TextLayout for AndroidTextLayout {
         // with the border of the grapheme cluster.
 
         // null case
-        if self.text.len() == 0 {
+        if self.text.is_empty() {
             return HitTestPoint::default();
         }
 
