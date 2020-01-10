@@ -6,8 +6,8 @@ use unwrap::*;
 use jni;
 
 use jni_android_sys::android::graphics::{
-    self, Bitmap, Bitmap_Config, Canvas, LinearGradient, Paint, Paint_Style, Path as APath, Shader,
-    Shader_TileMode, Typeface,
+    self, Bitmap, Bitmap_Config, Canvas, LinearGradient, Paint, Paint_Style, Path as APath,
+    RadialGradient, Shader, Shader_TileMode, Typeface,
 };
 use jni_android_sys::java::lang::String as JavaString;
 use jni_android_sys::java::nio::{Buffer, ByteBuffer};
@@ -292,7 +292,47 @@ impl From<FixedGradient> for AndroidBrush {
                     })
                 })
             }
-            FixedGradient::Radial(_) => unimplemented!("TODO add Radial offset"),
+            FixedGradient::Radial(piet::FixedRadialGradient {
+                center,
+                origin_offset,
+                radius,
+                stops,
+            }) => with_current_env(|env| {
+                let center_x = center.x as f32;
+                let center_y = center.y as f32;
+                let offset_x = origin_offset.x as f32;
+                let offset_y = origin_offset.y as f32;
+                let radius = radius as f32;
+
+                let colors: Vec<i32> = stops
+                    .iter()
+                    .map(|stop| {
+                        let color: AndroidColor = stop.color.clone().into();
+                        let color: i32 = color.into();
+                        color
+                    })
+                    .collect();
+                let pos: Vec<f32> = stops.iter().map(|stop| stop.pos).collect();
+                let colors: Local<jni_glue::IntArray> =
+                    jni_glue::PrimitiveArray::from(env, &colors);
+                let pos: Local<jni_glue::FloatArray> = jni_glue::PrimitiveArray::from(env, &pos);
+                let tile_mode = Shader_TileMode::CLAMP(env).unwrap();
+
+                let android_gradient =
+                    RadialGradient::new_float_float_float_int_array_float_array_TileMode(
+                        env,
+                        center_x + offset_x,
+                        center_y + offset_y,
+                        radius,
+                        Some(&colors as &jni_glue::IntArray),
+                        Some(&pos as &jni_glue::FloatArray),
+                        Some(&tile_mode as &Shader_TileMode),
+                    )
+                    .unwrap();
+                brush.with_paint(|paint| {
+                    paint.setShader(Some(&android_gradient as &Shader)).unwrap();
+                })
+            }),
         }
         brush
     }

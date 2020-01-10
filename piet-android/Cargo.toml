@@ -29,6 +29,7 @@ jni-android-sys = {version = "0.0.9",  features = [
     "android-graphics-Path",
     "android-graphics-PathEffect",
     "android-graphics-Path_FillType",
+    "android-graphics-RadialGradient",
     "android-graphics-Rect",
     "android-graphics-Shader",
     "android-graphics-Shader_TileMode",
