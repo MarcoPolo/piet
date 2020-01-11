@@ -43,7 +43,8 @@ pub fn set_current_env(env: &Env) {
     });
 }
 
-fn with_current_env<F, R>(f: F) -> R
+#[doc(hidden)]
+pub fn with_current_env<F, R>(f: F) -> R
 where
     F: FnOnce(&Env) -> R,
 {
