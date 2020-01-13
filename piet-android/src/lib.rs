@@ -831,7 +831,14 @@ impl<'a, 'draw> RenderContext for AndroidRenderContext<'a, 'draw> {
         self.canvas.with_env_canvas(|env, canvas| {
             brush.with_paint(|paint| {
                 let font_paint = layout.font.paint.with(env);
-                paint.set(Some(&font_paint as &Paint)).unwrap();
+
+                // Copy styles over from font_paint to our current paint.
+                paint
+                    .setTypeface(Some(&*font_paint.getTypeface().unwrap().unwrap()))
+                    .unwrap();
+                paint
+                    .setTextSize(font_paint.getTextSize().unwrap())
+                    .unwrap();
                 let java_str = into_java_string(env, &layout.text);
 
                 canvas
