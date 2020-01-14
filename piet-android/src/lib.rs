@@ -11,7 +11,7 @@ use jni_android_sys::android::graphics::{
 };
 use jni_android_sys::java::lang::String as JavaString;
 use jni_android_sys::java::nio::{Buffer, ByteBuffer};
-use jni_glue::{self, Env, Global, Local, PrimitiveArray};
+use jni_glue::{self, Env, Global, Local, PrimitiveArray, Ref};
 use jni_sys::JNIEnv;
 use std::borrow::Cow;
 use std::error::Error as StdError;
@@ -341,7 +341,7 @@ impl From<FixedGradient> for AndroidBrush {
 
 // pub struct CanvasContext<'draw>(&'draw Canvas);
 pub enum CanvasContext<'draw> {
-    WithRef(&'draw Canvas),
+    WithRef(Ref<'draw, Canvas>),
     Owned(Global<Canvas>, PhantomData<&'draw ()>),
 }
 
@@ -355,7 +355,7 @@ impl<'draw> CanvasContext<'draw> {
         })
     }
 
-    pub fn new_from_canvas(canvas: &'draw Canvas) -> CanvasContext<'draw> {
+    pub fn new_from_canvas(canvas: Ref<'draw, Canvas>) -> CanvasContext<'draw> {
         CanvasContext::WithRef(canvas)
     }
 
@@ -386,13 +386,13 @@ impl<'draw> CanvasContext<'draw> {
     }
 }
 
-pub struct AndroidRenderContext<'a, 'draw> {
-    canvas: &'a mut CanvasContext<'draw>,
+pub struct AndroidRenderContext<'draw> {
+    canvas: CanvasContext<'draw>,
     text: AndroidText,
 }
 
-impl AndroidRenderContext<'_, '_> {
-    pub fn new<'a, 'draw>(canvas: &'a mut CanvasContext<'draw>) -> AndroidRenderContext<'a, 'draw> {
+impl AndroidRenderContext<'_> {
+    pub fn new<'draw>(canvas: CanvasContext<'draw>) -> AndroidRenderContext<'draw> {
         AndroidRenderContext {
             canvas,
             text: AndroidText,
@@ -590,7 +590,7 @@ impl TextLayout for AndroidTextLayout {
     }
 }
 
-impl<'draw> IntoBrush<AndroidRenderContext<'_, '_>> for AndroidBrush {
+impl<'draw> IntoBrush<AndroidRenderContext<'_>> for AndroidBrush {
     fn make_brush<'b>(
         &'b self,
         _piet: &mut AndroidRenderContext,
@@ -652,7 +652,7 @@ impl From<Color> for AndroidColor {
     }
 }
 
-impl<'a, 'draw> RenderContext for AndroidRenderContext<'a, 'draw> {
+impl<'draw> RenderContext for AndroidRenderContext<'draw> {
     type Brush = AndroidBrush;
     type Text = AndroidText;
     type TextLayout = AndroidTextLayout;

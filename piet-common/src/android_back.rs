@@ -8,7 +8,7 @@ use piet::{ErrorKind, ImageFormat};
 pub use piet_android::*;
 
 /// The `RenderContext` for the Android backend, which is selected.
-pub type Piet<'a, 'draw> = AndroidRenderContext<'a, 'draw>;
+pub type Piet<'draw> = AndroidRenderContext<'draw>;
 
 /// The associated brush type for this backend.
 ///
@@ -52,9 +52,9 @@ pub struct Device<'env> {
 }
 
 /// A struct provides a `RenderContext` and then can have its bitmap extracted.
-pub struct BitmapTarget<'env, 'draw> {
+pub struct BitmapTarget<'env> {
     surface: AndroidBitmap,
-    cr: CanvasContext<'draw>,
+    pix_scale: f64,
     env: &'env Env,
 }
 
@@ -79,24 +79,24 @@ impl<'env> Device<'env> {
             height as i32,
         )
         .unwrap();
-        let cr = CanvasContext::new(&surface);
-        let pix_scale = pix_scale as f32;
-        cr.scale(pix_scale, pix_scale);
         Ok(BitmapTarget {
             surface,
-            cr,
+            pix_scale,
             env: self.env,
         })
     }
 }
 
-impl<'draw> BitmapTarget<'_, 'draw> {
+impl BitmapTarget<'_> {
     /// Get a piet `RenderContext` for the bitmap.
     ///
     /// Note: caller is responsible for calling `finish` on the render
     /// context at the end of rendering.
-    pub fn render_context(&mut self) -> AndroidRenderContext<'_, 'draw> {
-        AndroidRenderContext::new(&mut self.cr)
+    pub fn render_context(&mut self) -> AndroidRenderContext<'static> {
+        let cc = CanvasContext::new(&self.surface);
+        let pix_scale = self.pix_scale as f32;
+        cc.scale(pix_scale, pix_scale);
+        AndroidRenderContext::new(cc)
     }
 
     pub fn into_bitmap(self) -> Global<Bitmap> {
