@@ -23,4 +23,5 @@ default-members = [
 
 [patch.crates-io]
 # Local fork that lets us turn Local and Argument int Global
-jni-glue = {git = "https://github.com/marcopolo/jni-bindgen", branch = "jni-glue-only"}
+# jni-glue = {git = "https://github.com/marcopolo/jni-bindgen", branch = "jni-glue-only"}
+# jni-glue = {path = "../jni-bindgen/jni-glue"}
