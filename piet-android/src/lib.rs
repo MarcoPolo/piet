@@ -389,13 +389,20 @@ impl<'draw> CanvasContext<'draw> {
 pub struct AndroidRenderContext<'draw> {
     canvas: CanvasContext<'draw>,
     text: AndroidText,
+    // TODO is this the best way?
+    // Remember what scale we are using on the canvas
+    scale_factor: f32,
+    matrix_stack: Vec<Affine>,
 }
 
 impl AndroidRenderContext<'_> {
-    pub fn new<'draw>(canvas: CanvasContext<'draw>) -> AndroidRenderContext<'draw> {
+    pub fn new(canvas: CanvasContext<'_>, scale_factor: f32) -> AndroidRenderContext<'_> {
+        canvas.scale(scale_factor, scale_factor);
         AndroidRenderContext {
             canvas,
             text: AndroidText,
+            scale_factor,
+            matrix_stack: vec![Affine::scale(scale_factor as f64)],
         }
     }
 }
@@ -784,6 +791,15 @@ impl<'draw> RenderContext for AndroidRenderContext<'draw> {
 
                 if let Some(dash) = &style.dash {
                     let (intervals, phase) = dash;
+                    let mut even_intervals = vec![];
+                    // If odd amount of intervals, concat it with itself to get an even amount.
+                    let intervals = if intervals.len() % 2 != 0 {
+                        even_intervals.extend_from_slice(&intervals[..]);
+                        even_intervals.extend_from_slice(&intervals[..]);
+                        &even_intervals
+                    } else {
+                        intervals
+                    };
                     let intervals_f32: Vec<f32> = intervals.iter().map(|f| *f as f32).collect();
                     let intervals: Local<jni_glue::FloatArray> =
                         PrimitiveArray::from(env, &intervals_f32);
@@ -792,7 +808,7 @@ impl<'draw> RenderContext for AndroidRenderContext<'draw> {
                         Some(&intervals as &jni_glue::FloatArray),
                         *phase as f32,
                     )
-                    .unwrap();
+                    .expect("Dash effect Failed");
                     paint
                         .setPathEffect(Some(&dash_effect as &graphics::PathEffect))
                         .unwrap();
@@ -855,6 +871,8 @@ impl<'draw> RenderContext for AndroidRenderContext<'draw> {
 
     fn save(&mut self) -> Result<(), Error> {
         // TODO propagate errors
+        self.matrix_stack
+            .push(self.matrix_stack.last().unwrap().clone());
         self.canvas.with_canvas(|canvas| {
             canvas.save().unwrap();
         });
@@ -863,6 +881,7 @@ impl<'draw> RenderContext for AndroidRenderContext<'draw> {
 
     fn restore(&mut self) -> Result<(), Error> {
         // TODO propagate errors
+        self.matrix_stack.pop();
         self.canvas.with_canvas(|canvas| {
             canvas.restore().unwrap();
         });
@@ -875,15 +894,39 @@ impl<'draw> RenderContext for AndroidRenderContext<'draw> {
     }
 
     fn transform(&mut self, transform: Affine) {
+        // let transform = transform * Affine::scale(self.scale_factor as f64);
+        if let Some(current_transform) = self.matrix_stack.pop() {
+            self.matrix_stack.push(current_transform * transform);
+        } else {
+            self.matrix_stack
+                .push(transform * Affine::scale(self.scale_factor as f64));
+        }
         self.canvas.with_env_canvas(|env, canvas| {
+            let transform = self.matrix_stack.last().unwrap();
             let floats = transform.as_coeffs();
-            let mut floats: Vec<f32> = floats.iter().map(|f| *f as f32).collect();
-            // Android expects the full 9x9 matrix
-            floats.push(0f32);
-            floats.push(0f32);
-            floats.push(1f32);
+            let floats: Vec<f32> = floats.iter().map(|f| *f as f32).collect();
+            // Android expects the full 3x3 matrix
+            // In the format of
+            //  [ m00, m01, m02,
+            //    m10, m11, m12,
+            //    m20, m21, m22 ]
+            // But the given transform coeffs is stored as
+            // [ a, b, c, d, e, f]
+            // And that maps to this matrix.
+            // | a c e |
+            // | b d f |
+            // | 0 0 1 |
+            // Notice how parsing it row by row leads you to
+            // [ a, c, e,
+            //   b, d, f,
+            //   0, 0, 1 ]
+            // Which isn't the same ordering!
+            // So we have to shuffle things around
+            let shuffled_floats = vec![
+                floats[0], floats[2], floats[4], floats[1], floats[3], floats[5], 0.0, 0.0, 1.0,
+            ];
             let java_floats: Local<jni_glue::FloatArray> =
-                jni_glue::PrimitiveArray::from(env, &floats);
+                jni_glue::PrimitiveArray::from(env, &shuffled_floats);
 
             let matrix = graphics::Matrix::new(env).unwrap();
             matrix

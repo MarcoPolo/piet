@@ -95,8 +95,7 @@ impl BitmapTarget<'_> {
     pub fn render_context(&mut self) -> AndroidRenderContext<'static> {
         let cc = CanvasContext::new(&self.surface);
         let pix_scale = self.pix_scale as f32;
-        cc.scale(pix_scale, pix_scale);
-        AndroidRenderContext::new(cc)
+        AndroidRenderContext::new(cc, pix_scale)
     }
 
     pub fn into_bitmap(self) -> Global<Bitmap> {
