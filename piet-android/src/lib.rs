@@ -694,11 +694,13 @@ impl<'draw> RenderContext for AndroidRenderContext<'draw> {
         self.canvas.with_env_canvas(|env, canvas| {
             let android_path = AndroidPath::from_shape(env, shape);
             brush.with_paint(|paint| {
+                let paint =
+                    Paint::new_Paint(env, Some(paint)).expect("Failed to make a Paint copy");
                 paint
                     .setStyle(Some(&*Paint_Style::FILL(env).unwrap()))
                     .unwrap();
                 canvas
-                    .drawPath(Some(&android_path.0 as &APath), Some(paint))
+                    .drawPath(Some(&android_path.0 as &APath), Some(&*paint))
                     .unwrap();
             })
         })
@@ -709,6 +711,8 @@ impl<'draw> RenderContext for AndroidRenderContext<'draw> {
         self.canvas.with_env_canvas(|env, canvas| {
             let android_path = AndroidPath::from_shape(env, shape);
             brush.with_paint(|paint| {
+                let paint =
+                    Paint::new_Paint(env, Some(paint)).expect("Failed to make a Paint copy");
                 paint
                     .setStyle(Some(&*Paint_Style::FILL(env).unwrap()))
                     .unwrap();
@@ -718,7 +722,7 @@ impl<'draw> RenderContext for AndroidRenderContext<'draw> {
                         as &graphics::Path_FillType))
                     .unwrap();
                 canvas
-                    .drawPath(Some(&android_path.0 as &APath), Some(paint))
+                    .drawPath(Some(&android_path.0 as &APath), Some(&*paint))
                     .unwrap();
             })
         })
@@ -738,12 +742,14 @@ impl<'draw> RenderContext for AndroidRenderContext<'draw> {
         self.canvas.with_env_canvas(|env, canvas| {
             let android_path = AndroidPath::from_shape(env, shape);
             brush.with_paint(|paint| {
+                let paint =
+                    Paint::new_Paint(env, Some(paint)).expect("Failed to make a Paint copy");
                 paint
                     .setStyle(Some(&*Paint_Style::STROKE(env).unwrap()))
                     .unwrap();
                 paint.setStrokeWidth(width as f32).unwrap();
                 canvas
-                    .drawPath(Some(&android_path.0 as &APath), Some(paint))
+                    .drawPath(Some(&android_path.0 as &APath), Some(&*paint))
                     .unwrap();
             })
         })
@@ -760,6 +766,8 @@ impl<'draw> RenderContext for AndroidRenderContext<'draw> {
         self.canvas.with_env_canvas(|env, canvas| {
             let android_path = AndroidPath::from_shape(env, shape);
             brush.with_paint(|paint| {
+                let paint =
+                    Paint::new_Paint(env, Some(paint)).expect("Failed to make a Paint copy");
                 paint.setStrokeWidth(width as f32).unwrap();
                 paint
                     .setStyle(Some(&*Paint_Style::STROKE(env).unwrap()))
@@ -824,7 +832,7 @@ impl<'draw> RenderContext for AndroidRenderContext<'draw> {
                         as &graphics::Path_FillType))
                     .unwrap();
                 canvas
-                    .drawPath(Some(&android_path.0 as &APath), Some(paint))
+                    .drawPath(Some(&android_path.0 as &APath), Some(&*paint))
                     .unwrap();
             })
         })
@@ -846,6 +854,8 @@ impl<'draw> RenderContext for AndroidRenderContext<'draw> {
 
         self.canvas.with_env_canvas(|env, canvas| {
             brush.with_paint(|paint| {
+                let paint =
+                    Paint::new_Paint(env, Some(paint)).expect("Failed to make a Paint copy");
                 let font_paint = layout.font.paint.with(env);
 
                 // Copy styles over from font_paint to our current paint.
