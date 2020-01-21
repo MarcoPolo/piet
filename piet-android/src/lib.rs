@@ -66,7 +66,7 @@ pub struct AndroidBitmap(pub Global<Bitmap>);
 
 fn format_to_bitmap_config(env: &Env, format: ImageFormat) -> Local<Bitmap_Config> {
     match format {
-        ImageFormat::RgbaSeparate | ImageFormat::RgbaPremul => {
+        ImageFormat::RgbaSeparate | ImageFormat::RgbaPremul | ImageFormat::Rgb => {
             Bitmap_Config::ARGB_8888(env).expect("Create bitmap config failed")
         }
         _ => panic!("Unhandled image format"),
@@ -102,6 +102,40 @@ impl AndroidBitmap {
         height: i32,
         buf: &[u8],
     ) -> Result<AndroidBitmap, AndroidError> {
+        let mut premul_buf: Vec<u8> = vec![];
+        // Android canvas backed bitmap is always pre-mul
+        let buf = match format {
+            // Convert a rgba separate into a premul form.
+            ImageFormat::RgbaSeparate => {
+                fn premul(x: u8, a: u8) -> u8 {
+                    let y = (x as u16) * (a as u16);
+                    ((y + (y >> 8) + 0x80) >> 8) as u8
+                }
+                // This can probably be faster and cleaner
+                for pixel in buf.chunks(4) {
+                    let (r, g, b, a) = (pixel[0], pixel[1], pixel[2], pixel[3]);
+                    premul_buf.push(premul(r, a));
+                    premul_buf.push(premul(g, a));
+                    premul_buf.push(premul(b, a));
+                    premul_buf.push(a);
+                }
+                &premul_buf[..]
+            }
+            ImageFormat::Rgb => {
+                for pixel in buf.chunks(3) {
+                    let (r, g, b) = (pixel[0], pixel[1], pixel[2]);
+                    premul_buf.push(r);
+                    premul_buf.push(g);
+                    premul_buf.push(b);
+                    premul_buf.push(u8::max_value());
+                }
+                &premul_buf[..]
+            }
+            ImageFormat::RgbaPremul => buf,
+            _ => panic!("Unhandled image format"),
+        };
+        let config = format_to_bitmap_config(env, format);
+
         // Convert &[u8] to &[i8] for jni
         let buf = unsafe { &*(buf as *const [u8] as *const [i8]) };
         let java_bytes: Local<jni_glue::ByteArray> = jni_glue::PrimitiveArray::from(env, &buf);
@@ -110,7 +144,6 @@ impl AndroidBitmap {
             Some(&java_bytes as &jni_glue::ByteArray)
         )));
 
-        let config = format_to_bitmap_config(env, format);
         Bitmap::createBitmap_int_int_Config(env, width, height, &config as &Bitmap_Config)
             .map(|bm| {
                 let bm = unwrap!(bm);
@@ -982,7 +1015,9 @@ impl<'draw> RenderContext for AndroidRenderContext<'draw> {
             let bitmap = image.0.with(env);
             let paint = Paint::new_int(env, Paint::ANTI_ALIAS_FLAG).unwrap();
             if interp == InterpolationMode::Bilinear {
-                paint.setFlags(Paint::FILTER_BITMAP_FLAG).unwrap();
+                paint.setFilterBitmap(true).unwrap();
+            } else {
+                paint.setFilterBitmap(false).unwrap();
             }
             canvas
                 .drawBitmap_Bitmap_Rect_Rect_Paint(
